@@ -7,24 +7,21 @@
 
 // Here we hold the number of cells we have in the x and y directions
 int nx, ny;
+int n_halo = 2;
 
-// This is where all of our points are. We need to keep track of our active
-// height and velocity grids, but also the corresponding derivatives. The reason
-// we have 2 copies for each derivative is that our multistep method uses the
-// derivative from the last 2 time steps.
 double *h, *u, *v, *dh, *du, *dv, *dh1, *du1, *dv1, *dh2, *du2, *dv2;
 double H, g, dx, dy, dt;
 
 void init(double *h0, double *u0, double *v0, double length_, double width_,
 int nx_, int ny_, double H_, double g_, double dt_, int rank_, int num_procs_)
 {
-    // We set the pointers to the arrays that were passed in
-    h = h0;
-    u = u0;
-    v = v0;
+    nx = nx_ + 2*n_halo;
+    ny = ny_ + 2*n_halo;
 
-    nx = nx_;
-    ny = ny_;
+    // we allocate space for h, u, and v
+    h = (double *)calloc(nx * ny, sizeof(double));
+    u = (double *)calloc(nx * ny, sizeof(double));
+    v = (double *)calloc(nx * ny, sizeof(double));
 
     // We allocate memory for the derivatives
     dh = (double *)calloc(nx * ny, sizeof(double));
@@ -39,143 +36,106 @@ int nx_, int ny_, double H_, double g_, double dt_, int rank_, int num_procs_)
     du2 = (double *)calloc(nx * ny, sizeof(double));
     dv2 = (double *)calloc(nx * ny, sizeof(double));
 
+    // build out halo
+    for (int i = 0; i < nx_ ; i++) {
+        for (int j = 0; j < ny_; j++) {
+            int index = (i + n_halo) * ny + (j + n_halo);
+            h[index] = h0[i * ny_ + j];
+            u[index] = u0[i * ny_ + j];
+            v[index] = v0[i * ny_ + j];
+        }
+    }
+
     H = H_;
     g = g_;
 
-    dx = length_ / nx;
-    dy = width_ / ny;
+    dx = length_ / nx_;
+    dy = width_ / ny_;
 
     dt = dt_;
 }
 
-/**
- * This function computes the derivative of the height field
- * with respect to time. This is done by taking the divergence
- * of the velocity field and multiplying by -H.
- */
+inline int index(int i, int j) {
+    return (i + n_halo) * ny + (j + n_halo);
+}
+
 void compute_dh()
 {
-    for (int i = 0; i < nx; i++)
+    for (int i = n_halo; i < nx - n_halo; i++)
     {
-        for (int j = 0; j < ny; j++)
+        for (int j = n_halo; j < ny - n_halo; j++)
         {
-            dh(i, j) = -H * (du_dx(i, j) + dv_dy(i, j));
+            dh[index(i,j)] = -H * (du_dx(i, j) + dv_dy(i, j));
         }
     }
 }
-
-/**
- * This function computes the derivative of the x-component of the
- * velocity field with respect to time. This is done by taking the
- * derivative of the height field with respect to x and multiplying
- * by -g.
- */
 
 void compute_du_dv()
 {
-    for (int i = 0; i < nx; i++)
+    for (int i = n_halo; i < nx - n_halo; i++)
     {
-        for (int j = 0; j < ny; j++)
+        for (int j = n_halo; j < ny - n_halo; j++)
         {
-            du(i, j) = -g * dh_dx(i, j);
-            dv(i, j) = -g * dh_dy(i, j);
+            du[index(i, j)] = -g * dh_dx(i, j);
+            dv[index(i, j)] = -g * dh_dy(i, j);
         }
     }
 }
-
-/**
- * This function computes the derivative of the y-component of the
- * velocity field with respect to time. This is done by taking the
- * derivative of the height field with respect to y and multiplying
- * by -g.
- */
-void compute_dv()
-{
-    for (int i = 0; i < nx; i++)
-    {
-        for (int j = 0; j < ny; j++)
-        {
-            dv(i, j) = -g * dh_dy(i, j);
-        }
-    }
-}
-
-/**
- * This function computes the next time step using a multistep method.
- * The coefficients a1, a2, and a3 are used to determine the weights
- * of the current and previous time steps.
- */
 
 void multistep(double a1, double a2, double a3)
 {
-    for (int i = 0; i < nx; i++)
+    for (int i = n_halo; i < nx - n_halo; i++)
     {
-        for (int j = 0; j < ny; j++)
+        for (int j = n_halo; j < ny - n_halo; j++)
         {
-            h(i, j) += (a1 * dh(i, j) + a2 * dh1(i, j) + a3 * dh2(i, j)) * dt;
-
-            u(i + 1, j) += (a1 * du(i, j) + a2 * du1(i, j)
-                            + a3 * du2(i, j)) * dt;
-
-            v(i, j + 1) += (a1 * dv(i, j) + a2 * dv1(i, j)
-                            + a3 * dv2(i, j)) * dt;
+            h[index(i, j)] += (a1 * dh[index(i, j)] + a2 * dh1[index(i, j)] +
+                            a3 * dh2[index(i, j)]) * dt;
+            // Remove the +1 from i+1 since index() already handles the offset
+            u[index(i+1, j)] += (a1 * du[index(i, j)] + a2 * du1[index(i, j)]
+                            + a3 * du2[index(i, j)]) * dt;
+            v[index(i, j+1)] += (a1 * dv[index(i, j)] + a2 * dv1[index(i, j)]
+                            + a3 * dv2[index(i, j)]) * dt;
         }
     }
 }
 
-/**
- * This function computes the ghost cells for the horizontal boundaries.
- * This is done by copying the values from the opposite side of the domain.
- */
+// take a look at this function more closely
 void compute_ghost_horizontal()
 {
-    for (int j = 0; j < ny; j++)
+    for (int j = n_halo; j < ny - n_halo; j++)
     {
-        h(nx, j) = h(0, j);
+        h[index(nx - n_halo, j)] = h[index(n_halo, j)];
+        h[index(n_halo - 1, j)] = h[index(nx - n_halo - 1, j)];
     }
 }
 
-/**
- * This function computes the ghost cells for the vertical boundaries.
- * This is done by copying the values from the opposite side of the domain.
- */
 void compute_ghost_vertical()
 {
-    for (int i = 0; i < nx; i++)
+    for (int i = n_halo; i < nx - n_halo; i++)
     {
-        h(i, ny) = h(i, 0);
+        h[index(i, ny - n_halo)] = h[index(i, n_halo)];
+        h[index(i, n_halo - 1)] = h[index(i, ny - n_halo - 1)];
     }
 }
 
-/**
- * This function computes the boundaries for the horizontal boundaries.
- * We do this by copying the values from the opposite side of the domain.
- */
 void compute_boundaries_horizontal()
 {
-    for (int j = 0; j < ny; j++)
+    for (int j = n_halo; j < ny - n_halo; j++)
     {
-        u(0, j) = u(nx, j);
+        u[index(n_halo - 1, j)] = u[index(nx - n_halo - 1, j)];
+        u[index(nx - n_halo, j)] = u[index(n_halo, j)];
     }
 }
 
-/**
- * This function computes the boundaries for the vertical boundaries.
- * We do this by copying the values from the opposite side of the domain.
- */
 void compute_boundaries_vertical()
 {
-    for (int i = 0; i < nx; i++)
+    for (int i = n_halo; i < nx - n_halo; i++)
     {
-        v(i, 0) = v(i, ny);
+        v[index(i, n_halo - 1)] = v[index(i, ny - n_halo - 1)];
+        v[index(i, ny - n_halo)] = v[index(i, n_halo)];
     }
 }
 
-/**
- * This function swaps the buffers for the derivatives of our different fields.
- * This is done so that we can use the derivatives from the previous time steps
- * in our multistep method.
- */
 void swap_buffers()
 {
     double *tmp;
@@ -197,17 +157,19 @@ void swap_buffers()
 }
 
 int t = 0;
+int N = 3;
 
 void step()
 {
+    if (t % N == 0) {
     // First, we compute our ghost cells as we need them for our derivatives
-    compute_ghost_horizontal();
-    compute_ghost_vertical();
+        compute_ghost_horizontal();
+        compute_ghost_vertical();
+    }
 
     // Next, we compute the derivatives of our fields
     compute_dh();
     compute_du_dv();
-    //compute_dv();
 
     // We set the coefficients for our multistep method
     double a1, a2, a3;
@@ -231,14 +193,16 @@ void step()
     // Finally, we compute the next time step using our multistep method
     multistep(a1, a2, a3);
 
-    // We compute the boundaries for our fields, as they are (1) needed for
-    // the next time step, and (2) aren't explicitly set in our multistep method
-    compute_boundaries_horizontal();
-    compute_boundaries_vertical();
+    // We compute the boundaries for our fields, as they are (1) needed for the
+    // next time step, and (2) aren't explicitly set in our multistep method
+    if (t % N == 0) {
+        compute_boundaries_horizontal();
+        compute_boundaries_vertical();
+    }
 
-    // We swap the buffers for our derivatives so that we can use the derivatives
-    // from the previous time steps in our multistep method, then increment
-    // the time step counter
+    // We swap the buffers for our derivatives so that we can use the
+    // derivatives from the previous time steps in our multistep method, then
+    // increment the time step counter
     swap_buffers();
 
     t++;

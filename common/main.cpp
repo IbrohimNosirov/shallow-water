@@ -132,7 +132,8 @@ int main(int argc, char **argv)
     init(h, u, v, length, width, nx, ny, depth, g, dt, rank, num_procs);
 
     clock_t init_end = clock();
-    fprintf(stderr, "Initialization time for rank %d: %f\n", rank, (double)(init_end - init_start) / CLOCKS_PER_SEC);
+    fprintf(stderr, "Initialization time for rank %d: %f\n", rank,
+		    (double)(init_end - init_start) / CLOCKS_PER_SEC);
 
     FILE *fptr;
 
@@ -183,7 +184,8 @@ int main(int argc, char **argv)
     clock_t free_start = clock();
     free_memory();
     clock_t free_end = clock();
-    fprintf(stderr, "Free memory time for rank %d: %f\n", rank, (double)(free_end - free_start) / CLOCKS_PER_SEC);
+    fprintf(stderr, "Free memory time for rank %d: %f\n", rank,
+		    (double)(free_end - free_start) / CLOCKS_PER_SEC);
 
     if (rank == 0)
     {

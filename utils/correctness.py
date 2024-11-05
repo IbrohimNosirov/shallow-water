@@ -10,7 +10,7 @@ import sys
 
 header_t = np.dtype([('Lx', 'i4'), ('Ly', 'i4'), ('nx', 'i4'), ('ny', 'i4'), ('H', 'f8'), ('g', 'f8'), ('r', 'f8'), ('h', 'f8'), ('dt', 'f8'), ('num_iter', 'i4'), ('save_iter', 'i4')])
 
-def main(file1 = 'serial.out', file2 = 'gpu.out', out='correctness.gif'):
+def main(file1 = 'basic_serial.out', file2 = 'serial.out', out='correctness.gif'):
     header1 = np.fromfile(file1, dtype=header_t, count=1)
     header2 = np.fromfile(file2, dtype=header_t, count=1)
 
