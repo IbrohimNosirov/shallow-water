@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <iostream>
 
 #include "../common/common.hpp"
 #include "../common/solver.hpp"
@@ -192,9 +193,23 @@ int t = 0;
 
 void step()
 {
+    std::cout << "Matrix h before ghost:" << std::endl;
+    for (int i = 0; i < nx+1; i++) {
+        for (int j = 0; j < ny+1; j++) {
+            std::cout << h(i,j) << " ";
+        }
+        std::cout << std::endl;
+    }
     // First, we compute our ghost cells as we need them for our derivatives
     compute_ghost_horizontal();
     compute_ghost_vertical();
+    std::cout << "Matrix h after ghost:" << std::endl;
+    for (int i = 0; i < nx+1; i++) {
+        for (int j = 0; j < ny+1; j++) {
+            std::cout << h(i,j) << " ";
+        }
+        std::cout << std::endl;
+    }
 
     // Next, we compute the derivatives of our fields
     compute_dh();

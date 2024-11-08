@@ -13,8 +13,7 @@
 
 int main(int argc, char **argv)
 {
-
-    int length = 1.0e7, width = 1.0e7, nx = 256, ny = 258, num_iterations = 1000, save_iter = 20;
+    int length = 1.0e7, width = 1.0e7, nx = 5, ny = 6, num_iterations = 2, save_iter = 20;
     double depth = 100.0, g = 1.0, r = 2.0e5, max_height = 10.0, dt = 100.0;
 
     char scenario[256] = "water_drop", output_file[256];
@@ -100,9 +99,9 @@ int main(int argc, char **argv)
 
     if (rank == 0)
     {
-        h = (double *)calloc((nx + 1) * (ny + 1), sizeof(double));
-        u = (double *)calloc((nx + 2) * ny, sizeof(double));
-        v = (double *)calloc(nx * (ny + 2), sizeof(double));
+        h = (double *)calloc((nx + 1)*(ny + 1), sizeof(double));
+        u = (double *)calloc((nx + 2)*ny, sizeof(double));
+        v = (double *)calloc(nx*(ny + 2), sizeof(double));
 
         if (strcmp(scenario, "water_drop") == 0)
         {

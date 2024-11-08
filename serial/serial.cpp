@@ -1,29 +1,37 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <iostream>
 
 #include "../common/common.hpp"
 #include "../common/solver.hpp"
 
-// Here we hold the number of cells we have in the x and y directions
 int nx, ny;
-int n_halo = 2;
+int nh = 2;
+int nx_halo, ny_halo;
+
+#define h(i, j) h[(i) * (ny_halo) + (j)]
+#define u(i, j) u[(i) * (ny) + (j)]
+#define v(i, j) v[(i) * (ny_halo) + (j)]
 
 double *h, *u, *v, *dh, *du, *dv, *dh1, *du1, *dv1, *dh2, *du2, *dv2;
 double H, g, dx, dy, dt;
 
-void init(double *h0, double *u0, double *v0, double length_, double width_,
-int nx_, int ny_, double H_, double g_, double dt_, int rank_, int num_procs_)
+void init(double *h0, double *u0, double *v0,
+          double length_, double width_,
+          int nx_, int ny_,
+          double H_, double g_, double dt_, int rank_, int num_procs_)
 {
-    nx = nx_ + 2*n_halo;
-    ny = ny_ + 2*n_halo;
+    nx_halo = nx_ + nh;
+    ny_halo = ny_ + nh;
+    nx = nx_;
+    ny = ny_;
 
-    // we allocate space for h, u, and v
-    h = (double *)calloc(nx * ny, sizeof(double));
-    u = (double *)calloc(nx * ny, sizeof(double));
-    v = (double *)calloc(nx * ny, sizeof(double));
+    // We allocate memory
+    h = (double *)calloc((nx_halo)*(ny_halo), sizeof(double));
+    u = (double *)calloc((nx_halo + 1)*ny, sizeof(double));
+    v = (double *)calloc(nx*(ny_halo+1), sizeof(double));
 
-    // We allocate memory for the derivatives
     dh = (double *)calloc(nx * ny, sizeof(double));
     du = (double *)calloc(nx * ny, sizeof(double));
     dv = (double *)calloc(nx * ny, sizeof(double));
@@ -36,15 +44,48 @@ int nx_, int ny_, double H_, double g_, double dt_, int rank_, int num_procs_)
     du2 = (double *)calloc(nx * ny, sizeof(double));
     dv2 = (double *)calloc(nx * ny, sizeof(double));
 
-    // build out halo
-    for (int i = 0; i < nx_ ; i++) {
-        for (int j = 0; j < ny_; j++) {
-            int index = (i + n_halo) * ny + (j + n_halo);
-            h[index] = h0[i * ny_ + j];
-            u[index] = u0[i * ny_ + j];
-            v[index] = v0[i * ny_ + j];
+    // nx + 1 because scenarios.cpp is like this. 
+    for (int i = 0; i < nx+1; i++) {
+        for (int j = 0; j < ny+1; j++) {
+            h(i,j) = h0[i*(ny+1) + j];
+            u(i,j) = u0[i*(ny+1) + j];
+            v(i,j) = v0[i*(ny + 2) + j];
         }
     }
+
+    //Debug
+    //for (int i = 0; i < nx; i++) {
+    //    for (int j = 0; j < ny; j++) {
+    //        h(i,j) = h0[i*ny + j] + i*ny + j + 1;
+    //        u(i,j) = u0[i*ny + j] + i*ny + j + 1;
+    //        v(i,j) = v0[i*(ny + 2) + j] + i*(ny+2) + j + 1;
+    //    }
+    //}
+
+    // Debug.
+    //std::cout << "Matrix h after allocation:" << std::endl;
+    //for (int i = 0; i < nx_halo; i++) {
+    //    for (int j = 0; j < ny_halo; j++) {
+    //        std::cout << h(i,j) << " ";
+    //    }
+    //    std::cout << std::endl;
+    //}
+
+    //std::cout << "Matrix u after allocation:" << std::endl;
+    //for (int i = 0; i < nx_halo+1; i++) {
+    //    for (int j = 0; j < ny; j++) {
+    //        std::cout << u(i,j) << " ";
+    //    }
+    //    std::cout << std::endl;
+    //}
+
+    //std::cout << "Matrix v after allocation:" << std::endl;
+    //for (int i = 0; i < nx; i++) {
+    //    for (int j = 0; j < ny+2; j++) {
+    //        std::cout << v(i,j) << " ";
+    //    }
+    //    std::cout << std::endl;
+    //}
 
     H = H_;
     g = g_;
@@ -55,84 +96,74 @@ int nx_, int ny_, double H_, double g_, double dt_, int rank_, int num_procs_)
     dt = dt_;
 }
 
-inline int index(int i, int j) {
-    return (i + n_halo) * ny + (j + n_halo);
-}
-
-void compute_dh()
+void compute_derivatives()
 {
-    for (int i = n_halo; i < nx - n_halo; i++)
+    for (int i = 0; i < nx; i++)
     {
-        for (int j = n_halo; j < ny - n_halo; j++)
+        for (int j = 0; j < ny; j++)
         {
-            dh[index(i,j)] = -H * (du_dx(i, j) + dv_dy(i, j));
-        }
-    }
-}
-
-void compute_du_dv()
-{
-    for (int i = n_halo; i < nx - n_halo; i++)
-    {
-        for (int j = n_halo; j < ny - n_halo; j++)
-        {
-            du[index(i, j)] = -g * dh_dx(i, j);
-            dv[index(i, j)] = -g * dh_dy(i, j);
+            dh(i, j) = -H * (du_dx(i, j) + dv_dy(i, j));
+            du(i, j) = -g * dh_dx(i, j);
+            dv(i, j) = -g * dh_dy(i, j);
         }
     }
 }
 
 void multistep(double a1, double a2, double a3)
 {
-    for (int i = n_halo; i < nx - n_halo; i++)
+    for (int i = 0; i < nx; i++)
     {
-        for (int j = n_halo; j < ny - n_halo; j++)
+        for (int j = 0; j < ny; j++)
         {
-            h[index(i, j)] += (a1 * dh[index(i, j)] + a2 * dh1[index(i, j)] +
-                            a3 * dh2[index(i, j)]) * dt;
-            // Remove the +1 from i+1 since index() already handles the offset
-            u[index(i+1, j)] += (a1 * du[index(i, j)] + a2 * du1[index(i, j)]
-                            + a3 * du2[index(i, j)]) * dt;
-            v[index(i, j+1)] += (a1 * dv[index(i, j)] + a2 * dv1[index(i, j)]
-                            + a3 * dv2[index(i, j)]) * dt;
+            h(i, j) += (a1*dh(i,j) + a2*dh1(i,j) + a3*dh2(i,j))*dt;
+            u(i + 1, j) += (a1*du(i,j) + a2*du1(i,j) + a3*du2(i,j))*dt;
+            v(i, j + 1) += (a1*dv(i,j) + a2*dv1(i,j) + a3*dv2(i,j))*dt;
         }
     }
 }
 
-// take a look at this function more closely
+// first goes to last
 void compute_ghost_horizontal()
 {
-    for (int j = n_halo; j < ny - n_halo; j++)
+
+    for (int j = 0; j < ny; j++)
     {
-        h[index(nx - n_halo, j)] = h[index(n_halo, j)];
-        h[index(n_halo - 1, j)] = h[index(nx - n_halo - 1, j)];
+        h(nx, j) = h(0, j);
     }
+
+    //for (int i = nx; i < nx_halo; i++) {
+    //    for (int j = 0; j < ny; j++) {
+    //        h(i, j) = h(nx_halo-(i+1), j);
+    //        std::cout << "h(nx_halo), j:" << h(nx_halo, j) << std::endl;
+    //    }
+    //}
+    
 }
 
+// first goes to last
 void compute_ghost_vertical()
 {
-    for (int i = n_halo; i < nx - n_halo; i++)
+    for (int i = 0; i < nx; i++)
     {
-        h[index(i, ny - n_halo)] = h[index(i, n_halo)];
-        h[index(i, n_halo - 1)] = h[index(i, ny - n_halo - 1)];
+        h(i, ny) = h(i, 0);
     }
 }
 
+// last goes to first
 void compute_boundaries_horizontal()
 {
-    for (int j = n_halo; j < ny - n_halo; j++)
+    for (int j = 0; j < ny; j++)
     {
-        u[index(n_halo - 1, j)] = u[index(nx - n_halo - 1, j)];
-        u[index(nx - n_halo, j)] = u[index(n_halo, j)];
+        u(0, j) = u(nx, j);
     }
 }
 
+// last goes to first
 void compute_boundaries_vertical()
 {
-    for (int i = n_halo; i < nx - n_halo; i++)
+    for (int i = 0; i < nx; i++)
     {
-        v[index(i, n_halo - 1)] = v[index(i, ny - n_halo - 1)];
-        v[index(i, ny - n_halo)] = v[index(i, n_halo)];
+        v(i, 0) = v(i, ny);
     }
 }
 
@@ -157,21 +188,29 @@ void swap_buffers()
 }
 
 int t = 0;
-int N = 3;
 
 void step()
 {
-    if (t % N == 0) {
-    // First, we compute our ghost cells as we need them for our derivatives
-        compute_ghost_horizontal();
-        compute_ghost_vertical();
+    std::cout << "Matrix h before ghost:" << std::endl;
+    for (int i = 0; i < nx_halo; i++) {
+        for (int j = 0; j < ny_halo; j++) {
+            std::cout << h(i,j) << " ";
+        }
+        std::cout << std::endl;
+    }
+    compute_ghost_horizontal();
+    compute_ghost_vertical();
+
+    std::cout << "Matrix h after ghost:" << std::endl;
+    for (int i = 0; i < nx_halo; i++) {
+        for (int j = 0; j < ny_halo; j++) {
+            std::cout << h(i,j) << " ";
+        }
+        std::cout << std::endl;
     }
 
-    // Next, we compute the derivatives of our fields
-    compute_dh();
-    compute_du_dv();
+    compute_derivatives();
 
-    // We set the coefficients for our multistep method
     double a1, a2, a3;
 
     if (t == 0)
@@ -190,34 +229,50 @@ void step()
         a3 = 5.0 / 12.0;
     }
 
-    // Finally, we compute the next time step using our multistep method
     multistep(a1, a2, a3);
 
-    // We compute the boundaries for our fields, as they are (1) needed for the
-    // next time step, and (2) aren't explicitly set in our multistep method
-    if (t % N == 0) {
-        compute_boundaries_horizontal();
-        compute_boundaries_vertical();
-    }
+    //std::cout << "Matrix u before boundary:" << std::endl;
+    //for (int i = 0; i < nx_halo+1; i++) {
+    //    for (int j = 0; j < ny; j++) {
+    //        std::cout << u(i,j) << " ";
+    //    }
+    //    std::cout << std::endl;
+    //}
+    compute_boundaries_horizontal();
+    //std::cout << "Matrix u after boundary:" << std::endl;
+    //for (int i = 0; i < nx_halo+1; i++) {
+    //    for (int j = 0; j < ny; j++) {
+    //        std::cout << u(i,j) << " ";
+    //    }
+    //    std::cout << std::endl;
+    //}
 
-    // We swap the buffers for our derivatives so that we can use the
-    // derivatives from the previous time steps in our multistep method, then
-    // increment the time step counter
+    //std::cout << "Matrix v before boundary:" << std::endl;
+    //for (int i = 0; i < nx; i++) {
+    //    for (int j = 0; j < ny_halo+1; j++) {
+    //        std::cout << v(i,j) << " ";
+    //    }
+    //    std::cout << std::endl;
+    //}
+    compute_boundaries_vertical();
+    //std::cout << "Matrix v after boundary:" << std::endl;
+    //for (int i = 0; i < nx; i++) {
+    //    for (int j = 0; j < ny_halo+1; j++) {
+    //        std::cout << v(i,j) << " ";
+    //    }
+    //    std::cout << std::endl;
+    //}
+
     swap_buffers();
 
     t++;
 }
 
-// Since all of our memory is already on the CPU, and specifically in the
-// height field, we don't need to transfer anything
 void transfer(double *h)
 {
     return;
 }
 
-// We free all of the memory that we allocated. We didn't create the initial
-// height or velocity fields, so we don't need to free them. They are the
-// responsibility of the calling code.
 void free_memory()
 {
     free(dh);

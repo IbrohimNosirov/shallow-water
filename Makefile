@@ -1,7 +1,7 @@
 NVCC=nvcc
 NVCCFLAGS=-DCUDA
 
-CPP=CC
+CPP=clang++
 CFLAGS=-lm
 OPTFLAGS=-O3 -ffast-math
 
